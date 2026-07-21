@@ -429,3 +429,254 @@ else:
     frame_placeholder.info(
         "Start the session and capture/upload a frame."
     )
+
+# ============================================================
+# SESSION SUMMARY
+# ============================================================
+
+st.divider()
+
+if proctor.total_frames > 0:
+
+    summary = proctor.get_session_summary()
+
+    st.header("📑 Session Summary")
+
+    c1, c2, c3 = st.columns(3)
+
+    with c1:
+
+        st.metric(
+            "Final Trust Score",
+            f"{summary['final_trust_score']}%"
+        )
+
+        st.metric(
+            "Warnings",
+            summary["total_warnings"]
+        )
+
+    with c2:
+
+        st.metric(
+            "Cheating Score",
+            summary["final_cheating_score"]
+        )
+
+        st.metric(
+            "Average FPS",
+            summary["average_fps"]
+        )
+
+    with c3:
+
+        st.metric(
+            "Duration",
+            f"{summary['duration_seconds']} sec"
+        )
+
+        st.metric(
+            "Status",
+            summary["status"]
+        )
+
+    # ============================================================
+    # VIOLATION BREAKDOWN
+    # ============================================================
+
+    st.divider()
+
+    st.subheader("📊 Violation Breakdown")
+
+    violation_df = pd.DataFrame({
+
+        "Violation": list(summary["violation_breakdown"].keys()),
+
+        "Count": list(summary["violation_breakdown"].values())
+
+    })
+
+    st.bar_chart(
+        violation_df.set_index("Violation")
+    )
+
+    # ============================================================
+    # SCREENSHOTS
+    # ============================================================
+
+    st.divider()
+
+    st.subheader("📸 Violation Screenshots")
+
+    if len(proctor.captured_screenshots) == 0:
+
+        st.info("No screenshots captured.")
+
+    else:
+
+        cols = st.columns(3)
+
+        for i, shot in enumerate(proctor.captured_screenshots):
+
+            with cols[i % 3]:
+
+                if os.path.exists(shot["path"]):
+
+                    st.image(
+                        shot["path"],
+                        caption=f"{shot['event']} ({shot['timestamp']})",
+                        use_container_width=True
+                    )
+
+    # ============================================================
+    # REPORT DOWNLOADS
+    # ============================================================
+
+    st.divider()
+
+    st.subheader("📥 Export Reports")
+
+    col_csv, col_pdf = st.columns(2)
+
+    csv_path = proctor.export_csv_report()
+
+    with open(csv_path, "rb") as f:
+
+        col_csv.download_button(
+
+            "⬇ Download CSV",
+
+            data=f,
+
+            file_name="Interview_Report.csv",
+
+            mime="text/csv",
+
+            use_container_width=True
+
+        )
+
+    try:
+
+        pdf_path = proctor.export_pdf_report()
+
+        with open(pdf_path, "rb") as f:
+
+            col_pdf.download_button(
+
+                "⬇ Download PDF",
+
+                data=f,
+
+                file_name="Interview_Report.pdf",
+
+                mime="application/pdf",
+
+                use_container_width=True
+
+            )
+
+    except Exception as e:
+
+        col_pdf.warning(str(e))
+
+    # ============================================================
+    # EVENT HISTORY
+    # ============================================================
+
+    st.divider()
+
+    st.subheader("📜 Event History")
+
+    if len(proctor.logs) == 0:
+
+        st.success("No violations recorded.")
+
+    else:
+
+        log_df = pd.DataFrame(proctor.logs)
+
+        st.dataframe(
+
+            log_df,
+
+            use_container_width=True,
+
+            hide_index=True
+
+        )
+
+    # ============================================================
+    # FINAL OBJECT COUNTS
+    # ============================================================
+
+    if st.session_state.result is not None:
+
+        result = st.session_state.result
+
+        st.divider()
+
+        st.subheader("📦 Final Object Statistics")
+
+        object_df = pd.DataFrame({
+
+            "Object":[
+
+                "Phone",
+
+                "Book",
+
+                "Headphone",
+
+                "Laptop",
+
+                "Person",
+
+                "TV"
+
+            ],
+
+            "Count":[
+
+                result["objects"]["phone"],
+
+                result["objects"]["book"],
+
+                result["objects"]["headphone"],
+
+                result["objects"]["laptop"],
+
+                result["objects"]["person"],
+
+                result["objects"]["tv"]
+
+            ]
+
+        })
+
+        st.table(object_df)
+
+else:
+
+    st.info("Start a session to view reports.")
+
+# ============================================================
+# FOOTER
+# ============================================================
+
+st.divider()
+
+st.markdown(
+"""
+<center>
+
+### 🛡 AI Interview Proctoring System
+
+YOLOv8 • MediaPipe • OpenCV • Streamlit
+
+Developed by Noitik Bhattacharya....
+
+</center>
+""",
+unsafe_allow_html=True
+)
