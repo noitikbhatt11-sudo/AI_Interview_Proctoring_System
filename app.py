@@ -5,6 +5,8 @@ import pandas as pd
 import tempfile
 import os
 from datetime import datetime
+from streamlit_webrtc import webrtc_streamer, VideoProcessorBase
+import av
 
 from utils.proctor_ai import (
     analyze_frame,
@@ -81,35 +83,20 @@ st.session_state.candidate_name = st.sidebar.text_input(
     value=st.session_state.candidate_name
 )
 
+roles_list = [
+    "AI Engineer",
+    "Machine Learning Engineer",
+    "Data Scientist",
+    "Software Engineer",
+    "Backend Developer",
+    "Frontend Developer",
+    "Full Stack Developer"
+]
+
 st.session_state.role = st.sidebar.selectbox(
     "Applied Role",
-    [
-        "AI Engineer",
-        "Machine Learning Engineer",
-        "Data Scientist",
-        "Software Engineer",
-        "Backend Developer",
-        "Frontend Developer",
-        "Full Stack Developer"
-    ],
-    index=[
-        "AI Engineer",
-        "Machine Learning Engineer",
-        "Data Scientist",
-        "Software Engineer",
-        "Backend Developer",
-        "Frontend Developer",
-        "Full Stack Developer"
-    ].index(st.session_state.role)
-    if st.session_state.role in [
-        "AI Engineer",
-        "Machine Learning Engineer",
-        "Data Scientist",
-        "Software Engineer",
-        "Backend Developer",
-        "Frontend Developer",
-        "Full Stack Developer"
-    ] else 0
+    roles_list,
+    index=roles_list.index(st.session_state.role) if st.session_state.role in roles_list else 0
 )
 
 st.session_state.mode = st.sidebar.radio(
@@ -127,44 +114,23 @@ st.sidebar.divider()
 col1, col2 = st.sidebar.columns(2)
 
 with col1:
-
-    if st.button(
-        "▶ Start",
-        use_container_width=True
-    ):
-
+    if st.button("▶ Start", use_container_width=True):
         proctor.reset_session()
-
         st.session_state.running = True
-
         st.session_state.result = None
-
         st.success("Session Started")
 
 with col2:
-
-    if st.button(
-        "■ Stop",
-        use_container_width=True
-    ):
-
+    if st.button("■ Stop", use_container_width=True):
         st.session_state.running = False
-
         st.success("Session Stopped")
 
 st.sidebar.divider()
 
-if st.sidebar.button(
-    "🔄 Reset Session",
-    use_container_width=True
-):
-
+if st.sidebar.button("🔄 Reset Session", use_container_width=True):
     proctor.reset_session()
-
     st.session_state.running = False
-
     st.session_state.result = None
-
     st.success("Session Reset Successfully")
 
 # ============================================================
@@ -173,9 +139,7 @@ if st.sidebar.button(
 
 st.title("🛡 AI Interview Proctoring System")
 
-st.caption(
-    "YOLOv8 • MediaPipe • OpenCV • Streamlit"
-)
+st.caption("YOLOv8 • MediaPipe • OpenCV • Streamlit")
 
 status = "🟢 RUNNING" if st.session_state.running else "🔴 STOPPED"
 
@@ -200,7 +164,6 @@ left_col, right_col = st.columns([2.3, 1])
 frame_placeholder = left_col.empty()
 
 with right_col:
-
     st.subheader("📊 Live Statistics")
 
     trust_metric = st.empty()
@@ -235,34 +198,28 @@ with right_col:
 
 if st.session_state.mode == "Webcam":
 
-    image = st.camera_input(
-        "Interview Camera",
-        disabled=not st.session_state.running
+    class VideoProcessor(VideoProcessorBase):
+        def recv(self, frame):
+            img = frame.to_ndarray(format="bgr24")
+
+            if st.session_state.running:
+                result = analyze_frame(img)
+                st.session_state.result = result
+                img = result["frame"]
+
+            return av.VideoFrame.from_ndarray(
+                img,
+                format="bgr24"
+            )
+
+    webrtc_streamer(
+        key="interview",
+        video_processor_factory=VideoProcessor,
+        media_stream_constraints={
+            "video": True,
+            "audio": False
+        }
     )
-
-    if image is not None and st.session_state.running:
-
-        image_bytes = image.getvalue()
-
-        frame = cv2.imdecode(
-            np.frombuffer(image_bytes, np.uint8),
-            cv2.IMREAD_COLOR
-        )
-
-        result = analyze_frame(frame)
-
-        st.session_state.result = result
-
-        rgb = cv2.cvtColor(
-            result["frame"],
-            cv2.COLOR_BGR2RGB
-        )
-
-        frame_placeholder.image(
-            rgb,
-            channels="RGB",
-            use_container_width=True
-        )
 
 
 # ============================================================
@@ -295,7 +252,6 @@ else:
         current = 0
 
         while cap.isOpened():
-
             success, frame = cap.read()
 
             if not success:
@@ -319,7 +275,6 @@ else:
             )
 
             if total_frames > 0:
-
                 progress.progress(
                     min(current / total_frames, 1.0)
                 )
@@ -373,8 +328,7 @@ if st.session_state.result is not None:
     )
 
     object_df = pd.DataFrame({
-
-        "Object":[
+        "Object": [
             "Phone",
             "Book",
             "Headphone",
@@ -382,8 +336,7 @@ if st.session_state.result is not None:
             "Person",
             "TV"
         ],
-
-        "Count":[
+        "Count": [
             result["objects"]["phone"],
             result["objects"]["book"],
             result["objects"]["headphone"],
@@ -391,7 +344,6 @@ if st.session_state.result is not None:
             result["objects"]["person"],
             result["objects"]["tv"]
         ]
-
     })
 
     object_placeholder.dataframe(
@@ -401,11 +353,9 @@ if st.session_state.result is not None:
     )
 
     if result["logs"]:
-
         log_text = ""
 
         for log in reversed(result["logs"][-15:]):
-
             timestamp = log.get("timestamp", "--:--:--")
             severity = log.get("severity", "INFO")
             message = log.get("message", "")
@@ -419,13 +369,9 @@ if st.session_state.result is not None:
         log_placeholder.text(log_text)
 
     else:
-
-        log_placeholder.success(
-            "No violations detected."
-        )
+        log_placeholder.success("No violations detected.")
 
 else:
-
     frame_placeholder.info(
         "Start the session and capture/upload a frame."
     )
@@ -445,7 +391,6 @@ if proctor.total_frames > 0:
     c1, c2, c3 = st.columns(3)
 
     with c1:
-
         st.metric(
             "Final Trust Score",
             f"{summary['final_trust_score']}%"
@@ -457,7 +402,6 @@ if proctor.total_frames > 0:
         )
 
     with c2:
-
         st.metric(
             "Cheating Score",
             summary["final_cheating_score"]
@@ -469,7 +413,6 @@ if proctor.total_frames > 0:
         )
 
     with c3:
-
         st.metric(
             "Duration",
             f"{summary['duration_seconds']} sec"
@@ -489,11 +432,8 @@ if proctor.total_frames > 0:
     st.subheader("📊 Violation Breakdown")
 
     violation_df = pd.DataFrame({
-
         "Violation": list(summary["violation_breakdown"].keys()),
-
         "Count": list(summary["violation_breakdown"].values())
-
     })
 
     st.bar_chart(
@@ -509,19 +449,13 @@ if proctor.total_frames > 0:
     st.subheader("📸 Violation Screenshots")
 
     if len(proctor.captured_screenshots) == 0:
-
         st.info("No screenshots captured.")
-
     else:
-
         cols = st.columns(3)
 
         for i, shot in enumerate(proctor.captured_screenshots):
-
             with cols[i % 3]:
-
                 if os.path.exists(shot["path"]):
-
                     st.image(
                         shot["path"],
                         caption=f"{shot['event']} ({shot['timestamp']})",
@@ -541,43 +475,27 @@ if proctor.total_frames > 0:
     csv_path = proctor.export_csv_report()
 
     with open(csv_path, "rb") as f:
-
         col_csv.download_button(
-
             "⬇ Download CSV",
-
             data=f,
-
             file_name="Interview_Report.csv",
-
             mime="text/csv",
-
             use_container_width=True
-
         )
 
     try:
-
         pdf_path = proctor.export_pdf_report()
 
         with open(pdf_path, "rb") as f:
-
             col_pdf.download_button(
-
                 "⬇ Download PDF",
-
                 data=f,
-
                 file_name="Interview_Report.pdf",
-
                 mime="application/pdf",
-
                 use_container_width=True
-
             )
 
     except Exception as e:
-
         col_pdf.warning(str(e))
 
     # ============================================================
@@ -589,21 +507,14 @@ if proctor.total_frames > 0:
     st.subheader("📜 Event History")
 
     if len(proctor.logs) == 0:
-
         st.success("No violations recorded.")
-
     else:
-
         log_df = pd.DataFrame(proctor.logs)
 
         st.dataframe(
-
             log_df,
-
             use_container_width=True,
-
             hide_index=True
-
         )
 
     # ============================================================
@@ -611,7 +522,6 @@ if proctor.total_frames > 0:
     # ============================================================
 
     if st.session_state.result is not None:
-
         result = st.session_state.result
 
         st.divider()
@@ -619,45 +529,27 @@ if proctor.total_frames > 0:
         st.subheader("📦 Final Object Statistics")
 
         object_df = pd.DataFrame({
-
-            "Object":[
-
+            "Object": [
                 "Phone",
-
                 "Book",
-
                 "Headphone",
-
                 "Laptop",
-
                 "Person",
-
                 "TV"
-
             ],
-
-            "Count":[
-
+            "Count": [
                 result["objects"]["phone"],
-
                 result["objects"]["book"],
-
                 result["objects"]["headphone"],
-
                 result["objects"]["laptop"],
-
                 result["objects"]["person"],
-
                 result["objects"]["tv"]
-
             ]
-
         })
 
         st.table(object_df)
 
 else:
-
     st.info("Start a session to view reports.")
 
 # ============================================================
