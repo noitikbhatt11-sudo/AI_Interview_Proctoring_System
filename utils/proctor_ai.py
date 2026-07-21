@@ -368,6 +368,8 @@ class InterviewProctor:
         return frame
 
     def analyze_frame(self, frame):
+        if frame is None:
+            return None
         self.total_frames += 1
         frame, detections = self.detect_objects(frame)
         frame, head_result = self.analyze_face(frame)
@@ -521,16 +523,27 @@ class InterviewProctor:
         return filepath
 
     def reset_session(self):
-        self.total_frames = 0
-        self.session_start_time = time.time()
-        self.warning_count = 0
-        self.cheating_score = 0
-        self.trust_score = 100
-        self.logs = []
-        self.captured_screenshots = []
-        self.last_triggered = {key: 0.0 for key in self.cooldowns}
-        self.violation_counts = {key: 0 for key in self.cooldowns}
-        self.reset_counters()
+    self.total_frames = 0
+    self.session_start_time = time.time()
+    self.prev_frame_time = time.time()
+    self.fps = 0.0
+
+    self.warning_count = 0
+    self.cheating_score = 0
+    self.trust_score = 100
+
+    self.logs = []
+    self.captured_screenshots = []
+
+    self.last_triggered = {
+        key: 0.0 for key in self.cooldowns
+    }
+
+    self.violation_counts = {
+        key: 0 for key in self.cooldowns
+    }
+
+    self.reset_counters()
 
 
 # Streamlit / Web UI Global Integration
