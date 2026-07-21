@@ -1,3 +1,13 @@
+"""
+AI Interview Proctor Utilities
+
+This package provides:
+- YOLOv8 object detection
+- MediaPipe head pose estimation
+- AI interview monitoring
+- Streamlit integration
+"""
+
 import logging
 
 # Package Metadata
@@ -5,7 +15,7 @@ __version__ = "1.0.0"
 __author__ = "AI Proctor Team"
 
 # Configure package-level logging
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("AI_Interview_Proctor")
 
 # Guard against missing key runtime dependencies with friendly error messages
 try:
@@ -18,9 +28,9 @@ try:
 except ImportError as e:
     logger.error("Failed to import core proctor modules. Check dependencies.")
     raise ImportError(
-        f"Error loading AI Proctor utilities: {e}\n"
-        "Ensure OpenCV, MediaPipe, Ultralytics, and NumPy are installed."
-    ) from e
+    f"Error loading AI Proctor utilities: {e}\n"
+    "Ensure OpenCV, MediaPipe, Ultralytics, NumPy, and ReportLab are installed."
+) from e
 
 # Explicit export definition (alphabetically organized)
 __all__ = [
