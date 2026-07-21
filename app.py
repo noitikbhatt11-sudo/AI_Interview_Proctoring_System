@@ -1,574 +1,190 @@
-import streamlit as st
+import time
+from datetime import datetime
+import os
+import av
 import cv2
 import numpy as np
-import pandas as pd
-import tempfile
-import os
-from datetime import datetime
-from streamlit_webrtc import webrtc_streamer, VideoProcessorBase
-import av
-
-from utils.proctor_ai import (
-    analyze_frame,
-    get_proctor_instance
-)
-
-# ============================================================
-# PAGE CONFIGURATION
-# ============================================================
-
-st.set_page_config(
-    page_title="AI Interview Proctor",
-    page_icon="🛡️",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
-# ============================================================
-# CUSTOM CSS
-# ============================================================
-
-st.markdown("""
-<style>
-
-.main {
-    background-color: #0E1117;
-}
-
-.block-container{
-    padding-top:2rem;
-}
-
-.metric-card{
-    background:#1F2937;
-    border-radius:10px;
-    padding:12px;
-}
-
-</style>
-""", unsafe_allow_html=True)
-
-# ============================================================
-# LOAD PROCTOR ENGINE
-# ============================================================
-
-proctor = get_proctor_instance()
-
-# ============================================================
-# SESSION STATE
-# ============================================================
-
-DEFAULT_STATE = {
-    "running": False,
-    "candidate_name": "Alex Johnson",
-    "role": "AI Engineer",
-    "mode": "Webcam",
-    "result": None
-}
-
-for key, value in DEFAULT_STATE.items():
-    if key not in st.session_state:
-        st.session_state[key] = value
-
-# ============================================================
-# SIDEBAR
-# ============================================================
-
-st.sidebar.title("🛡 AI Interview Proctor")
-
-st.sidebar.markdown("### Candidate Details")
-
-st.session_state.candidate_name = st.sidebar.text_input(
-    "Candidate Name",
-    value=st.session_state.candidate_name
-)
-
-roles_list = [
-    "AI Engineer",
-    "Machine Learning Engineer",
-    "Data Scientist",
-    "Software Engineer",
-    "Backend Developer",
-    "Frontend Developer",
-    "Full Stack Developer"
-]
-
-st.session_state.role = st.sidebar.selectbox(
-    "Applied Role",
-    roles_list,
-    index=roles_list.index(st.session_state.role) if st.session_state.role in roles_list else 0
-)
-
-st.session_state.mode = st.sidebar.radio(
-    "Monitoring Mode",
-    ["Webcam", "Upload Video"],
-    index=0 if st.session_state.mode == "Webcam" else 1
-)
-
-st.sidebar.divider()
-
-# ============================================================
-# SESSION CONTROLS
-# ============================================================
-
-col1, col2 = st.sidebar.columns(2)
-
-with col1:
-    if st.button("▶ Start", use_container_width=True):
-        proctor.reset_session()
-        st.session_state.running = True
-        st.session_state.result = None
-        st.success("Session Started")
-
-with col2:
-    if st.button("■ Stop", use_container_width=True):
-        st.session_state.running = False
-        st.success("Session Stopped")
-
-st.sidebar.divider()
-
-if st.sidebar.button("🔄 Reset Session", use_container_width=True):
-    proctor.reset_session()
-    st.session_state.running = False
-    st.session_state.result = None
-    st.success("Session Reset Successfully")
-
-# ============================================================
-# HEADER
-# ============================================================
-
-st.title("🛡 AI Interview Proctoring System")
-
-st.caption("YOLOv8 • MediaPipe • OpenCV • Streamlit")
-
-status = "🟢 RUNNING" if st.session_state.running else "🔴 STOPPED"
-
-st.markdown(
-    f"""
-**Candidate:** {st.session_state.candidate_name}
-
-**Role:** {st.session_state.role}
-
-**Status:** {status}
-"""
-)
-
-st.divider()
-
-# ============================================================
-# LIVE MONITORING
-# ============================================================
-
-left_col, right_col = st.columns([2.3, 1])
-
-frame_placeholder = left_col.empty()
-
-with right_col:
-    st.subheader("📊 Live Statistics")
-
-    trust_metric = st.empty()
-    cheat_metric = st.empty()
-    warning_metric = st.empty()
-    fps_metric = st.empty()
-    timer_metric = st.empty()
-
-    st.divider()
-
-    st.subheader("👤 Face Analysis")
-
-    head_metric = st.empty()
-    face_metric = st.empty()
-
-    st.divider()
-
-    st.subheader("📦 Objects")
-
-    object_placeholder = st.empty()
-
-    st.divider()
-
-    st.subheader("⚠ Live Logs")
-
-    log_placeholder = st.empty()
-
-
-# ============================================================
-# WEBCAM MODE
-# ============================================================
-
-if st.session_state.mode == "Webcam":
-
-    class VideoProcessor(VideoProcessorBase):
-        def recv(self, frame):
-            img = frame.to_ndarray(format="bgr24")
-
-            if st.session_state.running:
-                result = analyze_frame(img)
-                st.session_state.result = result
-                img = result["frame"]
-
-            return av.VideoFrame.from_ndarray(
-                img,
-                format="bgr24"
-            )
-
-    webrtc_streamer(
-        key="interview",
-        video_processor_factory=VideoProcessor,
-        media_stream_constraints={
-            "video": True,
-            "audio": False
-        }
-    )
-
-
-# ============================================================
-# VIDEO MODE
-# ============================================================
-
-else:
-
-    uploaded_video = st.file_uploader(
-        "Upload Interview Video",
-        type=["mp4", "avi", "mov"]
-    )
-
-    if uploaded_video is not None and st.session_state.running:
-
-        temp_video = tempfile.NamedTemporaryFile(
-            delete=False,
-            suffix=".mp4"
-        )
-
-        temp_video.write(uploaded_video.read())
-        temp_video.close()
-
-        cap = cv2.VideoCapture(temp_video.name)
-
-        progress = st.progress(0)
-
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-
-        current = 0
-
-        while cap.isOpened():
-            success, frame = cap.read()
-
-            if not success:
-                break
-
-            current += 1
-
-            result = analyze_frame(frame)
-
-            st.session_state.result = result
-
-            rgb = cv2.cvtColor(
-                result["frame"],
-                cv2.COLOR_BGR2RGB
-            )
-
-            frame_placeholder.image(
-                rgb,
-                channels="RGB",
-                use_container_width=True
-            )
-
-            if total_frames > 0:
-                progress.progress(
-                    min(current / total_frames, 1.0)
+import streamlit as st
+from streamlit_webrtc import webrtc_streamer, WebRtcMode
+from ultralytics import YOLO
+
+# Initialize application directories for saving violation artifacts
+os.makedirs("violations/snapshots", exist_ok=True)
+os.makedirs("violations/crops", exist_ok=True)
+
+st.set_page_config(page_title="Advanced AI Violation & Zone Analytics Hub", layout="wide")
+st.title("🛡️ Next-Gen AI Real-Time Proctoring & Zone Violation Hub")
+
+# Advanced Sidebar Controls
+st.sidebar.title("System Controls & AI Tuning")
+confidence_threshold = st.sidebar.slider("Confidence Threshold", 0.1, 1.0, 0.45, 0.05)
+selected_model = st.sidebar.selectbox("Select YOLO Architecture", ["yolov8n.pt", "yolov8s.pt"])
+enable_heatmap = st.sidebar.toggle("Enable Real-time Motion Heatmap", value=True)
+enable_zone_check = st.sidebar.toggle("Enable Restricted Polygon Zone", value=True)
+
+# Load YOLO model with Streamlit caching
+@st.cache_resource
+def load_yolo_model(model_path):
+    return YOLO(model_path)
+
+model = load_yolo_model(selected_model)
+
+# Initialize Session State structures
+if "violations_log" not in st.session_state:
+    st.session_state.violations_log = []
+if "heatmap_canvas" not in st.session_state:
+    st.session_state.heatmap_canvas = None
+
+class AdvancedVideoProcessor:
+    def __init__(self):
+        self.prev_time = 0
+
+    def recv(self, frame: av.VideoFrame) -> av.VideoFrame:
+        img = frame.to_ndarray(format="bgr24")
+        h, w, _ = img.shape
+        
+        # Calculate real-time FPS
+        current_time = time.time()
+        fps = 1 / (current_time - self.prev_time) if self.prev_time > 0 else 0
+        self.prev_time = current_time
+
+        # Initialize heatmap accumulator layer if dimensions change
+        if st.session_state.heatmap_canvas is None or st.session_state.heatmap_canvas.shape[:2] != (h, w):
+            st.session_state.heatmap_canvas = np.zeros((h, w, 3), dtype=np.uint8)
+
+        # Run YOLO inference with ByteTrack object tracking enabled
+        results = model.track(img, persist=True, conf=confidence_threshold, verbose=False)
+        annotated_img = results[0].plot()
+
+        # Define a dynamic restricted polygon zone (e.g., center security box)
+        # Format: Normalized coordinates scaled to frame resolution
+        zone_pts = np.array([
+            [int(w * 0.3), int(h * 0.3)],
+            [int(w * 0.7), int(h * 0.3)],
+            [int(w * 0.7), int(h * 0.8)],
+            [int(w * 0.3), int(h * 0.8)]
+        ], np.int32)
+
+        if enable_zone_check:
+            # Draw boundary overlay for restricted zone
+            cv2.polylines(annotated_img, [zone_pts], isClosed=True, color=(0, 0, 255), thickness=2)
+            cv2.putText(annotated_img, "RESTRICTED ZONE", (int(w * 0.3), int(h * 0.3) - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+
+        # Scan detected objects for violations and zone intrusions
+        for idx, box in enumerate(results[0].boxes):
+            cls_id = int(box.cls[0])
+            cls_name = model.names[cls_id]
+            conf_score = float(box.conf[0])
+            xyxy = box.xyxy[0].cpu().numpy() # Bounding box coordinates [x1, y1, x2, y2]
+            
+            # Center point of bounding box for zone checking
+            center_x = int((xyxy[0] + xyxy[2]) / 2)
+            center_y = int((xyxy[1] + xyxy[3]) / 2)
+
+            # Update heatmap tracking trail
+            if enable_heatmap:
+                cv2.circle(st.session_state.heatmap_canvas, (center_x, center_y), 15, (0, 255, 255), -1)
+
+            # Check if object is unauthorized OR intruding into the restriction zone
+            unauthorized_classes = ["cell phone", "laptop", "book", "tv", "person"]
+            in_zone = cv2.pointPolygonTest(zone_pts, (center_x, center_y), False) >= 0 if enable_zone_check else False
+
+            if cls_name in unauthorized_classes or (enable_zone_check and in_zone):
+                timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+                violation_reason = f"Zone Intrusion ({cls_name})" if in_zone else f"Unauthorized Object ({cls_name})"
+                
+                violation_entry = {
+                    "time": timestamp,
+                    "violation": violation_reason,
+                    "confidence": round(conf_score, 2)
+                }
+                
+                # Prevent duplicate logging spam for the same object instance within short frames
+                recent_logs = st.session_state.violations_log
+                is_duplicate = any(
+                    v['violation'] == violation_reason and 
+                    (datetime.now() - datetime.strptime(v['time'], "%Y-%m-%d_%H-%M-%S")).seconds < 3
+                    for v in recent_logs
                 )
 
-        cap.release()
+                if not is_duplicate:
+                    st.session_state.violations_log.append(violation_entry)
+                    
+                    # 1. Save Full Frame Snapshot Evidence
+                    snapshot_path = f"violations/snapshots/{timestamp}_{cls_name}.jpg"
+                    cv2.imwrite(snapshot_path, annotated_img)
 
-        os.remove(temp_video.name)
+                    # 2. Extract and Save Cropped Evidence Thumbnail of Target Violation
+                    x1, y1, x2, y2 = map(int, xyxy)
+                    # Clip bounds safely inside image frame dimensions
+                    x1, y1 = max(0, x1), max(0, y1)
+                    x2, y2 = min(w, x2), min(h, y2)
+                    if x2 > x1 and y2 > y1:
+                        crop_img = img[y1:y2, x1:x2]
+                        crop_path = f"violations/crops/crop_{timestamp}_{cls_name}.jpg"
+                        cv2.imwrite(crop_path, crop_img)
 
+        # Blend cumulative heatmap over frame if toggled active
+        if enable_heatmap and st.session_state.heatmap_canvas is not None:
+            # Apply color map and slight fading effect
+            heatmap_gray = cv2.cvtColor(st.session_state.heatmap_canvas, cv2.COLOR_BGR2GRAY)
+            heatmap_colored = cv2.applyColorMap(heatmap_gray, cv2.COLORMAP_JET)
+            annotated_img = cv2.addWeighted(annotated_img, 0.7, heatmap_colored, 0.3, 0)
+            # Slowly decay heatmap over time to represent active traffic flow
+            st.session_state.heatmap_canvas = cv2.addWeighted(st.session_state.heatmap_canvas, 0.98, np.zeros_like(st.session_state.heatmap_canvas), 0.02, 0)
 
-# ============================================================
-# DASHBOARD UPDATE
-# ============================================================
+        # Overlay real-time HUD telemetry counters
+        cv2.putText(annotated_img, f"FPS: {int(fps)}", (25, 45), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+        cv2.putText(annotated_img, f"Active Logs: {len(st.session_state.violations_log)}", (25, 85), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2)
 
-if st.session_state.result is not None:
+        return av.VideoFrame.from_ndarray(annotated_img, format="bgr24")
 
-    result = st.session_state.result
+# Streamlit WebRTC Component Layout
+col_stream, col_analytics = st.columns([1.5, 1])
 
-    trust_metric.metric(
-        "Trust Score",
-        f"{result['trust_score']}%"
+with col_stream:
+    st.subheader("🔴 Live AI Camera Feed & Spatial Engine")
+    webrtc_streamer(
+        key="advanced-violation-stream",
+        mode=WebRtcMode.SENDRECV,
+        video_processor_factory=AdvancedVideoProcessor,
+        rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]},
+        media_stream_constraints={"video": True, "audio": False}
     )
 
-    cheat_metric.metric(
-        "Cheating Score",
-        result["cheating_score"]
-    )
-
-    warning_metric.metric(
-        "Warnings",
-        result["warning_count"]
-    )
-
-    fps_metric.metric(
-        "FPS",
-        f"{result['fps']:.2f}"
-    )
-
-    timer_metric.metric(
-        "Timer",
-        result["timer"]
-    )
-
-    head_metric.metric(
-        "Direction",
-        result["head"]["direction"]
-    )
-
-    face_metric.metric(
-        "Faces",
-        result["head"]["face_count"]
-    )
-
-    object_df = pd.DataFrame({
-        "Object": [
-            "Phone",
-            "Book",
-            "Headphone",
-            "Laptop",
-            "Person",
-            "TV"
-        ],
-        "Count": [
-            result["objects"]["phone"],
-            result["objects"]["book"],
-            result["objects"]["headphone"],
-            result["objects"]["laptop"],
-            result["objects"]["person"],
-            result["objects"]["tv"]
-        ]
-    })
-
-    object_placeholder.dataframe(
-        object_df,
-        hide_index=True,
-        use_container_width=True
-    )
-
-    if result["logs"]:
-        log_text = ""
-
-        for log in reversed(result["logs"][-15:]):
-            timestamp = log.get("timestamp", "--:--:--")
-            severity = log.get("severity", "INFO")
-            message = log.get("message", "")
-
-            log_text += (
-                f"[{timestamp}] "
-                f"{severity}: "
-                f"{message}\n"
-            )
-
-        log_placeholder.text(log_text)
-
+with col_analytics:
+    st.subheader("📊 Live Threat Analytics & Frequency")
+    if st.session_state.violations_log:
+        # Extract violation types for native visual plotting
+        violation_types = [v["violation"] for v in st.session_state.violations_log]
+        unique_types, counts = np.unique(violation_types, return_counts=True)
+        chart_data = {t: c for t, c in zip(unique_types, counts)}
+        st.bar_chart(chart_data)
     else:
-        log_placeholder.success("No violations detected.")
+        st.info("Waiting for first violation event to compile spatial analytics...")
 
+st.markdown("---")
+st.subheader("📋 Recorded Violation Incidents & Evidence Vault")
+
+if st.session_state.violations_log:
+    st.dataframe(st.session_state.violations_log, use_container_width=True)
+    
+    # Export CSV Report
+    csv_string = "Timestamp,Violation Type,Confidence Score\n"
+    for row in st.session_state.violations_log:
+        csv_string += f"{row['time']},{row['violation']},{row['confidence']}\n"
+
+    st.download_button(
+        label="📥 Download Certified Incident Compliance Report (CSV)",
+        data=csv_string,
+        file_name=f"compliance_audit_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+        mime="text/csv"
+    )
+    
+    if st.button("🧹 Clear Incident Audit Logs"):
+        st.session_state.violations_log = []
+        st.session_state.heatmap_canvas = None
+        st.rerun()
 else:
-    frame_placeholder.info(
-        "Start the session and capture/upload a frame."
-    )
-
-# ============================================================
-# SESSION SUMMARY
-# ============================================================
-
-st.divider()
-
-if proctor.total_frames > 0:
-
-    summary = proctor.get_session_summary()
-
-    st.header("📑 Session Summary")
-
-    c1, c2, c3 = st.columns(3)
-
-    with c1:
-        st.metric(
-            "Final Trust Score",
-            f"{summary['final_trust_score']}%"
-        )
-
-        st.metric(
-            "Warnings",
-            summary["total_warnings"]
-        )
-
-    with c2:
-        st.metric(
-            "Cheating Score",
-            summary["final_cheating_score"]
-        )
-
-        st.metric(
-            "Average FPS",
-            summary["average_fps"]
-        )
-
-    with c3:
-        st.metric(
-            "Duration",
-            f"{summary['duration_seconds']} sec"
-        )
-
-        st.metric(
-            "Status",
-            summary["status"]
-        )
-
-    # ============================================================
-    # VIOLATION BREAKDOWN
-    # ============================================================
-
-    st.divider()
-
-    st.subheader("📊 Violation Breakdown")
-
-    violation_df = pd.DataFrame({
-        "Violation": list(summary["violation_breakdown"].keys()),
-        "Count": list(summary["violation_breakdown"].values())
-    })
-
-    st.bar_chart(
-        violation_df.set_index("Violation")
-    )
-
-    # ============================================================
-    # SCREENSHOTS
-    # ============================================================
-
-    st.divider()
-
-    st.subheader("📸 Violation Screenshots")
-
-    if len(proctor.captured_screenshots) == 0:
-        st.info("No screenshots captured.")
-    else:
-        cols = st.columns(3)
-
-        for i, shot in enumerate(proctor.captured_screenshots):
-            with cols[i % 3]:
-                if os.path.exists(shot["path"]):
-                    st.image(
-                        shot["path"],
-                        caption=f"{shot['event']} ({shot['timestamp']})",
-                        use_container_width=True
-                    )
-
-    # ============================================================
-    # REPORT DOWNLOADS
-    # ============================================================
-
-    st.divider()
-
-    st.subheader("📥 Export Reports")
-
-    col_csv, col_pdf = st.columns(2)
-
-    csv_path = proctor.export_csv_report()
-
-    with open(csv_path, "rb") as f:
-        col_csv.download_button(
-            "⬇ Download CSV",
-            data=f,
-            file_name="Interview_Report.csv",
-            mime="text/csv",
-            use_container_width=True
-        )
-
-    try:
-        pdf_path = proctor.export_pdf_report()
-
-        with open(pdf_path, "rb") as f:
-            col_pdf.download_button(
-                "⬇ Download PDF",
-                data=f,
-                file_name="Interview_Report.pdf",
-                mime="application/pdf",
-                use_container_width=True
-            )
-
-    except Exception as e:
-        col_pdf.warning(str(e))
-
-    # ============================================================
-    # EVENT HISTORY
-    # ============================================================
-
-    st.divider()
-
-    st.subheader("📜 Event History")
-
-    if len(proctor.logs) == 0:
-        st.success("No violations recorded.")
-    else:
-        log_df = pd.DataFrame(proctor.logs)
-
-        st.dataframe(
-            log_df,
-            use_container_width=True,
-            hide_index=True
-        )
-
-    # ============================================================
-    # FINAL OBJECT COUNTS
-    # ============================================================
-
-    if st.session_state.result is not None:
-        result = st.session_state.result
-
-        st.divider()
-
-        st.subheader("📦 Final Object Statistics")
-
-        object_df = pd.DataFrame({
-            "Object": [
-                "Phone",
-                "Book",
-                "Headphone",
-                "Laptop",
-                "Person",
-                "TV"
-            ],
-            "Count": [
-                result["objects"]["phone"],
-                result["objects"]["book"],
-                result["objects"]["headphone"],
-                result["objects"]["laptop"],
-                result["objects"]["person"],
-                result["objects"]["tv"]
-            ]
-        })
-
-        st.table(object_df)
-
-else:
-    st.info("Start a session to view reports.")
-
-# ============================================================
-# FOOTER
-# ============================================================
-
-st.divider()
-
-st.markdown(
-"""
-<center>
-
-### 🛡 AI Interview Proctoring System
-
-YOLOv8 • MediaPipe • OpenCV • Streamlit
-
-Developed by Noitik Bhattacharya....
-
-</center>
-""",
-unsafe_allow_html=True
-)
+    st.success("System Secure: Zero active security or zone violations recorded.")
